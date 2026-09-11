@@ -6,8 +6,9 @@ import pdfplumber
 import streamlit as st
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from openpyxl.utils import get_column_letter
 
-# --- 추출 로직 (기존과 동일) ---
+# --- 추출 로직 ---
 def calculate_validity_period(cert_date_str):
     try:
         clean_str = cert_date_str.replace(" ", "")
@@ -82,11 +83,11 @@ def extract_data_from_pdf(pdf_file_buffer):
 st.set_page_config(page_title="인증서 추출기", page_icon="📝", layout="centered")
 
 st.title("📄 인증서 데이터 자동 추출기")
-st.markdown("엑셀 목록과 PDF 요약서를 올리면 자동으로 매칭하여 최종 엑셀을 만들어줍니다.")
+st.markdown("인증 제품 목록과 시험결과요약서를 올리면 자동으로 데이터 매칭하여 인증 정보를 추출")
 
 # 파일 업로드 구역
 st.subheader("1. 파일 업로드")
-excel_file = st.file_uploader("엑셀 파일 (인증 제품 관리 목록) 업로드", type=['xlsx', 'xls'])
+excel_file = st.file_uploader("인증 제품 관리 목록 엑셀 파일 업로드", type=['xlsx', 'xls'])
 pdf_files = st.file_uploader("시험결과요약서 PDF 파일 업로드 (여러 개 동시 선택 가능)", type=['pdf'], accept_multiple_files=True)
 
 # 실행 버튼 구역
@@ -130,7 +131,11 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
                     cert_date = pdf_info.get("인증연월일", "")
                     valid_start, valid_end = calculate_validity_period(cert_date) 
                     
+                    # 💡 제조자 누락 시 엑셀의 '업체명'으로 대체
                     manu = pdf_info.get("제조자", "").strip()
+                    if not manu:
+                        manu = str(row_data.get("업체명", "")).strip()
+                        
                     country = pdf_info.get("제조국가", "").strip()
                     if not country: country = "대한민국"
                     manu_and_country = f"{manu} / {country}" if manu else country
@@ -155,7 +160,7 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
             
             status_text.text("모든 처리 완료!")
             
-            # 3. 결과 다운로드 버튼 생성
+            # 3. 결과 다운로드 버튼 생성 및 열 너비 자동 조절
             if final_results:
                 result_df = pd.DataFrame(final_results)
                 result_df = result_df.sort_values(by="인증번호", ascending=True)
@@ -163,7 +168,23 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
                 # 메모리에 엑셀 파일 만들기
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    result_df.to_excel(writer, index=False)
+                    result_df.to_excel(writer, index=False, sheet_name='Sheet1')
+                    worksheet = writer.sheets['Sheet1']
+                    
+                    # 💡 각 열의 데이터 길이를 확인하여 엑셀 열 너비 자동 맞춤
+                    for col_idx, col in enumerate(result_df.columns):
+                        # 한글은 영문보다 엑셀에서 자리를 2배 차지하므로 인코딩 길이를 기준으로 계산
+                        col_len = len(str(col).encode('euc-kr', 'replace'))
+                        data_len = result_df[col].astype(str).map(lambda x: len(x.encode('euc-kr', 'replace'))).max() if not result_df.empty else 0
+                        max_len = max(col_len, data_len) + 2
+                        
+                        # Test Highlights 처럼 너무 긴 문장이 있을 경우 열 너비가 무한정 늘어나는 것을 방지 (최대 60 제한)
+                        if max_len > 60:
+                            max_len = 60
+                            
+                        col_letter = get_column_letter(col_idx + 1)
+                        worksheet.column_dimensions[col_letter].width = max_len
+
                 excel_data = output.getvalue()
                 
                 st.success(f"🎉 총 {len(final_results)}건의 데이터 매칭 및 추출에 성공했습니다!")
@@ -175,4 +196,4 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             else:
-                st.error("매칭된 데이터가 한 건도 없습니다.")
+                st.error("매칭된 데이터가 없습니다.")
