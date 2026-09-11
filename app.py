@@ -93,7 +93,7 @@ def extract_data_from_pdf(pdf_file_buffer):
     return extracted
 
 # --- 웹 화면(UI) 구성 ---
-st.set_page_config(page_title="인증서 추출기", page_icon="📝", layout="centered")
+st.set_page_config(page_title="인증 정보 추출기", page_icon="📝", layout="centered")
 
 # 💡 파일 업로더 초기화를 위한 세션 상태 변수 설정
 if "file_key" not in st.session_state:
