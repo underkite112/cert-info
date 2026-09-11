@@ -100,7 +100,7 @@ if "file_key" not in st.session_state:
     st.session_state["file_key"] = 0
 
 st.title("📄 인증서 데이터 자동 추출기")
-st.markdown("인증 제품 목록과 시험결과요약서를 올리면 자동으로 데이터 매칭하여 인증 정보를 추출")
+st.markdown("인증서 제작 및 고객서비스포털 인증제품 등록을 위한 인증 정보를 추출")
 
 # 파일 업로드 구역 (초기화 버튼 포함)
 col1, col2 = st.columns([4, 1])
