@@ -105,7 +105,7 @@ st.markdown("인증서 제작 및 고객서비스포털 인증제품 등록을 �
 # 파일 업로드 구역 (초기화 버튼 포함)
 col1, col2 = st.columns([4, 1])
 with col1:
-    st.subheader("1. 파일 업로드")
+    st.subheader("📎 파일 업로드")
 with col2:
     # 초기화 버튼을 누르면 key 값을 1 올려서 업로더를 완전히 새것으로 렌더링함
     if st.button("🔄 파일 초기화", use_container_width=True):
@@ -113,8 +113,8 @@ with col2:
         st.rerun()
 
 # 업로더의 key 값에 세션 변수를 넣어 초기화가 가능하게 설정
-excel_file = st.file_uploader("인증 제품 관리 목록 엑셀 파일 업로드", type=['xlsx', 'xls'], key=f"excel_{st.session_state['file_key']}")
-pdf_files = st.file_uploader("시험결과요약서 PDF 파일 업로드 (여러 개 동시 선택 가능)", type=['pdf'], accept_multiple_files=True, key=f"pdf_{st.session_state['file_key']}")
+excel_file = st.file_uploader("1. 인증 제품 관리 목록 엑셀 파일 업로드", type=['xlsx', 'xls'], key=f"excel_{st.session_state['file_key']}")
+pdf_files = st.file_uploader("2. 시험결과요약서 PDF 파일 업로드 (여러 개 동시 선택 가능)", type=['pdf'], accept_multiple_files=True, key=f"pdf_{st.session_state['file_key']}")
 
 # 실행 버튼 구역
 if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
