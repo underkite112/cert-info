@@ -28,9 +28,9 @@ def extract_data_from_pdf(pdf_file_buffer):
         with pdfplumber.open(pdf_file_buffer) as pdf:
             page = pdf.pages[0]
             text_full = page.extract_text()
+            
+            # 1. 일반 정보 추출
             patterns = {
-                "제조자": r"제조[자사]\s*[:]?\s*([^\n]+)",
-                "제조국가": r"제조국가\s*[:]?\s*([^\n]+)",
                 "인증연월일": r"인증\s*연월일\s*[:]?\s*([^\n]+)",
                 "인증번호": r"인증\s*번호\s*[:]?\s*([A-Za-z0-9\-]+)", 
                 "인증범위": r"인증[ ]?범위\s*[:]?\s*([^\n]+)" 
@@ -39,6 +39,19 @@ def extract_data_from_pdf(pdf_file_buffer):
                 match = re.search(pattern, text_full if text_full else "")
                 if match: extracted[key] = re.sub(r'\s{2,}.*', '', match.group(1)).strip()
 
+            # 2. 💡 제조자/제조국가 통합 추출 로직
+            combo_match = re.search(r'제조[자사]\s*/\s*제조국가\s*[:]?\s*([^\n]+)', text_full if text_full else "")
+            
+            if combo_match:
+                extracted["제조자_통합"] = re.sub(r'\s{2,}.*', '', combo_match.group(1)).strip()
+            else:
+                manu_match = re.search(r'제조[자사]\s*[:]?\s*([^\n]+)', text_full if text_full else "")
+                if manu_match: extracted["제조자"] = re.sub(r'\s{2,}.*', '', manu_match.group(1)).strip()
+                
+                country_match = re.search(r'제조국가\s*[:]?\s*([^\n]+)', text_full if text_full else "")
+                if country_match: extracted["제조국가"] = re.sub(r'\s{2,}.*', '', country_match.group(1)).strip()
+
+            # 3. Test Highlights 추출
             width, height = page.width, page.height
             right_bbox = (width * 0.32, 0, width, height) 
             right_page = page.within_bbox(right_bbox)
@@ -82,13 +95,26 @@ def extract_data_from_pdf(pdf_file_buffer):
 # --- 웹 화면(UI) 구성 ---
 st.set_page_config(page_title="인증서 추출기", page_icon="📝", layout="centered")
 
+# 💡 파일 업로더 초기화를 위한 세션 상태 변수 설정
+if "file_key" not in st.session_state:
+    st.session_state["file_key"] = 0
+
 st.title("📄 인증서 데이터 자동 추출기")
 st.markdown("인증 제품 목록과 시험결과요약서를 올리면 자동으로 데이터 매칭하여 인증 정보를 추출")
 
-# 파일 업로드 구역
-st.subheader("1. 파일 업로드")
-excel_file = st.file_uploader("인증 제품 관리 목록 엑셀 파일 업로드", type=['xlsx', 'xls'])
-pdf_files = st.file_uploader("시험결과요약서 PDF 파일 업로드 (여러 개 동시 선택 가능)", type=['pdf'], accept_multiple_files=True)
+# 파일 업로드 구역 (초기화 버튼 포함)
+col1, col2 = st.columns([4, 1])
+with col1:
+    st.subheader("1. 파일 업로드")
+with col2:
+    # 초기화 버튼을 누르면 key 값을 1 올려서 업로더를 완전히 새것으로 렌더링함
+    if st.button("🔄 파일 초기화", use_container_width=True):
+        st.session_state["file_key"] += 1
+        st.rerun()
+
+# 업로더의 key 값에 세션 변수를 넣어 초기화가 가능하게 설정
+excel_file = st.file_uploader("인증 제품 관리 목록 엑셀 파일 업로드", type=['xlsx', 'xls'], key=f"excel_{st.session_state['file_key']}")
+pdf_files = st.file_uploader("시험결과요약서 PDF 파일 업로드 (여러 개 동시 선택 가능)", type=['pdf'], accept_multiple_files=True, key=f"pdf_{st.session_state['file_key']}")
 
 # 실행 버튼 구역
 if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
@@ -98,7 +124,6 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
         st.warning("PDF 파일을 한 개 이상 업로드해주세요.")
     else:
         with st.spinner('데이터를 처리하는 중입니다. 잠시만 기다려주세요...'):
-            # 1. 엑셀 데이터 로드
             all_sheets = pd.read_excel(excel_file, sheet_name=None, header=1) 
             df_list = [df for sheet_name, df in all_sheets.items() if "TTA" in sheet_name]
             excel_data = pd.concat(df_list, ignore_index=True).fillna("") if df_list else pd.DataFrame()
@@ -109,7 +134,6 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
 
             final_results = []
             
-            # 2. PDF 순회 및 추출
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -131,14 +155,17 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
                     cert_date = pdf_info.get("인증연월일", "")
                     valid_start, valid_end = calculate_validity_period(cert_date) 
                     
-                    # 💡 제조자 누락 시 엑셀의 '업체명'으로 대체
-                    manu = pdf_info.get("제조자", "").strip()
-                    if not manu:
-                        manu = str(row_data.get("업체명", "")).strip()
-                        
-                    country = pdf_info.get("제조국가", "").strip()
-                    if not country: country = "대한민국"
-                    manu_and_country = f"{manu} / {country}" if manu else country
+                    if "제조자_통합" in pdf_info:
+                        raw_combo = pdf_info["제조자_통합"]
+                        manu_and_country = re.sub(r'\s*/\s*', ' / ', raw_combo)
+                    else:
+                        manu = pdf_info.get("제조자", "").strip()
+                        if not manu:
+                            manu = str(row_data.get("업체명", "")).strip()
+                            
+                        country = pdf_info.get("제조국가", "").strip()
+                        if not country: country = "대한민국"
+                        manu_and_country = f"{manu} / {country}"
                     
                     final_results.append({
                         "업체명": row_data.get("업체명", ""),
@@ -160,25 +187,20 @@ if st.button("데이터 매칭 및 추출 시작 🚀", type="primary"):
             
             status_text.text("모든 처리 완료!")
             
-            # 3. 결과 다운로드 버튼 생성 및 열 너비 자동 조절
             if final_results:
                 result_df = pd.DataFrame(final_results)
                 result_df = result_df.sort_values(by="인증번호", ascending=True)
                 
-                # 메모리에 엑셀 파일 만들기
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     result_df.to_excel(writer, index=False, sheet_name='Sheet1')
                     worksheet = writer.sheets['Sheet1']
                     
-                    # 💡 각 열의 데이터 길이를 확인하여 엑셀 열 너비 자동 맞춤
                     for col_idx, col in enumerate(result_df.columns):
-                        # 한글은 영문보다 엑셀에서 자리를 2배 차지하므로 인코딩 길이를 기준으로 계산
                         col_len = len(str(col).encode('euc-kr', 'replace'))
                         data_len = result_df[col].astype(str).map(lambda x: len(x.encode('euc-kr', 'replace'))).max() if not result_df.empty else 0
                         max_len = max(col_len, data_len) + 2
                         
-                        # Test Highlights 처럼 너무 긴 문장이 있을 경우 열 너비가 무한정 늘어나는 것을 방지 (최대 60 제한)
                         if max_len > 60:
                             max_len = 60
                             
